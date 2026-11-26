@@ -1,0 +1,72 @@
+name: Deploy GCP
+
+# Se ejecuta cuando el CI termina con éxito en main (o manualmente).
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # Necesario para Workload Identity Federation
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+  REPOSITORY: ${{ vars.GAR_REPOSITORY || 'soporteia' }}
+  SERVICE: ${{ vars.CLOUD_RUN_SERVICE || 'soporteia-api' }}
+
+jobs:
+  deploy:
+    name: Build, push y deploy a Cloud Run
+    runs-on: ubuntu-latest
+    # Solo despliega si el CI pasó y el proyecto de GCP está configurado.
+    if: >-
+      vars.GCP_PROJECT_ID != '' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.workflow_run.conclusion == 'success')
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Definir etiqueta de la imagen
+        run: |
+          SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
+          echo "IMAGE=${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${SERVICE}:${SHA}" >> "$GITHUB_ENV"
+
+      - name: Autenticación en GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configurar gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Autenticar Docker con Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - name: Construir imagen
+        run: docker build -t "$IMAGE" .
+
+      - name: Publicar imagen en Artifact Registry
+        run: docker push "$IMAGE"
+
+      - name: Desplegar en Cloud Run
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE }}
+          region: ${{ env.REGION }}
+          image: ${{ env.IMAGE }}
+          flags: --allow-unauthenticated --port=8080 --cpu=1 --memory=512Mi --min-instances=0 --max-instances=5
+
+      - name: Smoke test
+        run: |
+          URL="${{ steps.deploy.outputs.url }}"
+          echo "Servicio desplegado en: $URL"
+          curl --fail --silent --show-error "$URL/health"
