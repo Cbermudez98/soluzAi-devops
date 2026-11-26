@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: soporteia-api
+  labels:
+    app: soporteia-api
+spec:
+  # Una réplica: los datos viven en memoria dentro del proceso.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: soporteia-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: soporteia-api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: api
+          # Jenkins reemplaza la imagen con la etiqueta del commit (kubectl set image).
+          image: docker.io/cbermudez98/soporteia-api:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true

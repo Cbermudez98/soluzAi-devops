@@ -10,8 +10,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
-RUN useradd --create-home appuser
-USER appuser
+RUN useradd --uid 10001 --create-home appuser
+USER 10001
 
 EXPOSE 8080
 

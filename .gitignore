@@ -26,3 +26,7 @@ Thumbs.db
 
 # Documentos del curso
 *.pdf
+
+# Reportes de pruebas
+reports/
+coverage.xml

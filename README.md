@@ -1,5 +1,16 @@
 # SoporteIA API
 
+[![CI](https://github.com/Cbermudez98/soluzAi-devops/actions/workflows/ci.yml/badge.svg)](https://github.com/Cbermudez98/soluzAi-devops/actions/workflows/ci.yml)
+[![Deploy GCP](https://github.com/Cbermudez98/soluzAi-devops/actions/workflows/deploy.yml/badge.svg)](https://github.com/Cbermudez98/soluzAi-devops/actions/workflows/deploy.yml)
+
+| Enlace | Contenido |
+|---|---|
+| [📄 Documentación técnica](docs/DOCUMENTACION.md) | Herramientas, justificación, stages de CI y CD, evidencias |
+| [⚙️ Pipeline CI](.github/workflows/ci.yml) | GitHub Actions: lint, pruebas, seguridad, build |
+| [🚀 Pipeline CD](Jenkinsfile) | Jenkins: clonar, probar, build, Trivy, publicar, desplegar |
+| [☸️ Manifiestos K8s](k8s/) | Deployment y Service |
+| [▶️ Ejecuciones](https://github.com/Cbermudez98/soluzAi-devops/actions) | Historial de GitHub Actions |
+
 API en **FastAPI** con arquitectura **Modelo-Vista-Controlador** que simula el servicio de agentes de SoporteIA (Unidad 3 – Laboratorio técnico CI/CD).
 El agente usa reglas simples en lugar de Gemini para que las respuestas sean rápidas y deterministas durante las pruebas de carga con **k6**. Los datos viven en memoria y al iniciar se cargan dos tiendas (`tienda-demo`, `tienda-moda`) con 20 pedidos (códigos `1001`–`1020`).
 
@@ -98,16 +109,19 @@ docker run -p 8080:8080 soporteia-api
 ## Flujo CI/CD
 
 ```
-push / PR ──► CI (GitHub Actions) ──► merge a main ──► Deploy GCP (GitHub Actions)
-              checkout                                 build imagen (tag = commit)
-              instalar dependencias                    push a Artifact Registry
-              ruff (lint + formato)                    deploy a Cloud Run
-              pytest                                   smoke test /health
-              docker build
+push / PR ──► CI (GitHub Actions) ─────────► merge a main ──► CD (Jenkins)
+              ├─ Análisis estático (ruff)                     1. Clonar repositorio
+              ├─ Pruebas + cobertura ≥ 90 %                   2. Pruebas
+              ├─ Seguridad (Gitleaks, pip-audit)              3. Construir imagen (tag = commit)
+              └─ Build + smoke test + Trivy                   4. Escanear (Trivy)
+                                                              5. Publicar en el registro
+                                                              6. Desplegar en Kubernetes
+                                                              7. Smoke test (rollback si falla)
 ```
 
-- **`.github/workflows/ci.yml`**: corre en cada push o pull request a `main`.
-- **`.github/workflows/deploy.yml`**: corre cuando el CI termina con éxito en `main` (o manualmente con *Run workflow*). Si `GCP_PROJECT_ID` no está configurado, el job se omite.
+- **`.github/workflows/ci.yml`**: CI en cada push o pull request a `main`.
+- **`Jenkinsfile`**: CD agnóstico (registro y clúster parametrizados). Detalle de cada stage en la [documentación técnica](docs/DOCUMENTACION.md#5-pipeline-de-cd--jenkins).
+- **`.github/workflows/deploy.yml`** (adicional): despliega en Cloud Run cuando el CI termina con éxito en `main` (o manualmente con *Run workflow*). Si `GCP_PROJECT_ID` no está configurado, el job se omite.
 
 ### Configuración de GCP (una sola vez)
 
