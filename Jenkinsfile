@@ -1,30 +1,30 @@
-// Pipeline de Entrega Continua (CD) de SoporteIA API.
+// Continuous Delivery (CD) pipeline for SoporteIA API.
 //
-// Se ejecuta cuando un cambio llega a main (después de que el CI de GitHub
-// Actions lo validó). Construye una imagen inmutable etiquetada con el commit,
-// la escanea, la publica en un registro y la despliega en Kubernetes.
+// Runs when a change reaches main (after GitHub Actions CI has validated it).
+// Builds an immutable image tagged with the commit, scans it, publishes it to
+// a registry and deploys it to Kubernetes.
 //
-// Es agnóstico al entorno: el registro (Docker Hub, Artifact Registry, ECR,
-// ACR...) y el clúster (GKE, EKS, AKS, minikube...) se eligen con parámetros
-// y credenciales de Jenkins, sin cambiar el código.
+// Environment-agnostic: the registry (Docker Hub, Artifact Registry, ECR,
+// ACR...) and the cluster (GKE, EKS, AKS, minikube...) are selected through
+// Jenkins parameters and credentials, without changing the code.
 //
-// Requisitos del agente: git, docker, python3, trivy y kubectl.
-// Credenciales en Jenkins:
-//   - registry-credentials (usuario/contraseña o token del registro)
-//   - kubeconfig           (archivo secreto con acceso al clúster)
+// Agent requirements: git, docker, python3, trivy and kubectl.
+// Jenkins credentials:
+//   - registry-credentials (registry username/password or token)
+//   - kubeconfig           (secret file with cluster access)
 
 pipeline {
     agent any
 
     parameters {
         string(name: 'REGISTRY', defaultValue: 'docker.io',
-               description: 'Registro de imágenes (docker.io, us-central1-docker.pkg.dev, ...)')
+               description: 'Image registry (docker.io, us-central1-docker.pkg.dev, ...)')
         string(name: 'IMAGE_REPO', defaultValue: 'cbermudez98/soporteia-api',
-               description: 'Repositorio de la imagen dentro del registro')
+               description: 'Image repository inside the registry')
         choice(name: 'DEPLOY_ENV', choices: ['staging', 'production'],
-               description: 'Namespace de Kubernetes destino')
+               description: 'Target Kubernetes namespace')
         booleanParam(name: 'SKIP_DEPLOY', defaultValue: false,
-                     description: 'Solo construir y publicar la imagen, sin desplegar')
+                     description: 'Only build and publish the image, do not deploy')
     }
 
     options {
@@ -40,21 +40,21 @@ pipeline {
     }
 
     stages {
-        // 1. Obtiene exactamente el commit que disparó el pipeline.
-        stage('Clonar repositorio') {
+        // 1. Fetch exactly the commit that triggered the pipeline.
+        stage('Checkout') {
             steps {
                 checkout scm
                 script {
                     env.GIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
                     env.IMAGE_TAG = "${env.IMAGE_NAME}:${env.GIT_SHORT}"
                 }
-                echo "Commit ${env.GIT_SHORT} -> imagen ${env.IMAGE_TAG}"
+                echo "Commit ${env.GIT_SHORT} -> image ${env.IMAGE_TAG}"
             }
         }
 
-        // 2. Red de seguridad: no se publica nada que no pase las pruebas,
-        //    aunque alguien dispare el pipeline a mano sin pasar por el CI.
-        stage('Pruebas') {
+        // 2. Safety net: nothing is published unless tests pass, even if
+        //    someone triggers the pipeline manually without going through CI.
+        stage('Test') {
             steps {
                 sh '''
                     python3 -m venv .venv
@@ -68,9 +68,9 @@ pipeline {
             }
         }
 
-        // 3. Imagen inmutable: la etiqueta es el commit, así lo que se prueba
-        //    en staging es exactamente lo que llega a producción.
-        stage('Construir imagen Docker') {
+        // 3. Immutable image: the tag is the commit, so what is tested in
+        //    staging is exactly what reaches production.
+        stage('Build Docker image') {
             steps {
                 sh '''
                     docker build \
@@ -80,15 +80,15 @@ pipeline {
             }
         }
 
-        // 4. Bloquea la publicación si la imagen tiene CVE críticas.
-        stage('Escanear imagen (Trivy)') {
+        // 4. Block publishing if the image has critical CVEs.
+        stage('Scan image (Trivy)') {
             steps {
                 sh 'trivy image --severity CRITICAL --ignore-unfixed --exit-code 1 --no-progress ${IMAGE_TAG}'
             }
         }
 
-        // 5. Publica la imagen en el registro configurado.
-        stage('Publicar imagen') {
+        // 5. Publish the image to the configured registry.
+        stage('Push image') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'registry-credentials',
                                                   usernameVariable: 'REG_USER',
@@ -102,9 +102,9 @@ pipeline {
             }
         }
 
-        // 6. Despliega en el namespace elegido y espera a que el rollout
-        //    termine sano (readiness probe en /health).
-        stage('Desplegar en Kubernetes') {
+        // 6. Deploy to the selected namespace and wait for a healthy rollout
+        //    (readiness probe on /health).
+        stage('Deploy to Kubernetes') {
             when {
                 allOf {
                     branch 'main'
@@ -123,7 +123,7 @@ pipeline {
             }
         }
 
-        // 7. Verifica el servicio desde dentro del clúster.
+        // 7. Verify the service from inside the cluster.
         stage('Smoke test') {
             when {
                 allOf {
@@ -145,7 +145,7 @@ pipeline {
 
     post {
         failure {
-            // Si el despliegue falló, vuelve a la versión anterior.
+            // If the deployment failed, roll back to the previous version.
             script {
                 if (env.BRANCH_NAME == 'main' && !params.SKIP_DEPLOY) {
                     withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {

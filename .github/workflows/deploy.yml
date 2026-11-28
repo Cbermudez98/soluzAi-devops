@@ -1,6 +1,6 @@
 name: Deploy GCP
 
-# Se ejecuta cuando el CI termina con éxito en main (o manualmente).
+# Runs when CI completes successfully on main (or manually).
 on:
   workflow_run:
     workflows: [CI]
@@ -10,7 +10,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write # Necesario para Workload Identity Federation
+  id-token: write # Required for Workload Identity Federation
 
 env:
   PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
@@ -20,43 +20,43 @@ env:
 
 jobs:
   deploy:
-    name: Build, push y deploy a Cloud Run
+    name: Build, push and deploy to Cloud Run
     runs-on: ubuntu-latest
-    # Solo despliega si el CI pasó y el proyecto de GCP está configurado.
+    # Deploy only if CI passed and the GCP project is configured.
     if: >-
       vars.GCP_PROJECT_ID != '' &&
       (github.event_name == 'workflow_dispatch' ||
        github.event.workflow_run.conclusion == 'success')
     steps:
-      - name: Checkout del código
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-      - name: Definir etiqueta de la imagen
+      - name: Set image tag
         run: |
           SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
           echo "IMAGE=${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${SERVICE}:${SHA}" >> "$GITHUB_ENV"
 
-      - name: Autenticación en GCP
+      - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
-      - name: Configurar gcloud
+      - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Autenticar Docker con Artifact Registry
+      - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 
-      - name: Construir imagen
+      - name: Build image
         run: docker build -t "$IMAGE" .
 
-      - name: Publicar imagen en Artifact Registry
+      - name: Push image to Artifact Registry
         run: docker push "$IMAGE"
 
-      - name: Desplegar en Cloud Run
+      - name: Deploy to Cloud Run
         id: deploy
         uses: google-github-actions/deploy-cloudrun@v2
         with:
@@ -68,5 +68,5 @@ jobs:
       - name: Smoke test
         run: |
           URL="${{ steps.deploy.outputs.url }}"
-          echo "Servicio desplegado en: $URL"
+          echo "Service deployed at: $URL"
           curl --fail --silent --show-error "$URL/health"

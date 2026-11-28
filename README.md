@@ -110,13 +110,13 @@ docker run -p 8080:8080 soporteia-api
 
 ```
 push / PR ──► CI (GitHub Actions) ─────────► merge a main ──► CD (Jenkins)
-              ├─ Análisis estático (ruff)                     1. Clonar repositorio
-              ├─ Pruebas + cobertura ≥ 90 %                   2. Pruebas
-              ├─ Seguridad (Gitleaks, pip-audit)              3. Construir imagen (tag = commit)
-              └─ Build + smoke test + Trivy                   4. Escanear (Trivy)
-                                                              5. Publicar en el registro
-                                                              6. Desplegar en Kubernetes
-                                                              7. Smoke test (rollback si falla)
+              ├─ Static analysis (ruff)                       1. Checkout
+              ├─ Tests and coverage (≥ 90 %)                  2. Test
+              ├─ Security (Gitleaks, pip-audit)               3. Build Docker image (tag = commit)
+              └─ Image build (smoke test + Trivy)             4. Scan image (Trivy)
+                                                              5. Push image
+                                                              6. Deploy to Kubernetes
+                                                              7. Smoke test (rollback on failure)
 ```
 
 - **`.github/workflows/ci.yml`**: CI en cada push o pull request a `main`.

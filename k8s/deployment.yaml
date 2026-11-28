@@ -5,7 +5,7 @@ metadata:
   labels:
     app: soporteia-api
 spec:
-  # Una réplica: los datos viven en memoria dentro del proceso.
+  # Single replica: data is kept in memory inside the process.
   replicas: 1
   selector:
     matchLabels:
@@ -24,7 +24,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: api
-          # Jenkins reemplaza la imagen con la etiqueta del commit (kubectl set image).
+          # Jenkins replaces the image with the commit tag (kubectl set image).
           image: docker.io/cbermudez98/soporteia-api:latest
           ports:
             - name: http

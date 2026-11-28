@@ -23,10 +23,10 @@ flowchart LR
 
     subgraph CI [CI - GitHub Actions]
         direction TB
-        L[Análisis estático<br/>ruff]
-        T[Pruebas + cobertura<br/>pytest ≥ 90 %]
-        S[Seguridad<br/>Gitleaks + pip-audit]
-        B[Build + smoke test<br/>+ Trivy]
+        L[Static analysis<br/>ruff]
+        T[Tests and coverage<br/>pytest ≥ 90 %]
+        S[Security<br/>Gitleaks + pip-audit]
+        B[Image build<br/>smoke test + Trivy]
         L --> B
         T --> B
         S --> B
@@ -37,11 +37,11 @@ flowchart LR
 
     subgraph CD [CD - Jenkins]
         direction TB
-        C1[Clonar repositorio] --> C2[Pruebas]
-        C2 --> C3[Construir imagen<br/>tag = commit]
-        C3 --> C4[Escanear con Trivy]
-        C4 --> C5[Publicar en registro]
-        C5 --> C6[Desplegar en Kubernetes]
+        C1[Checkout] --> C2[Test]
+        C2 --> C3[Build Docker image<br/>tag = commit]
+        C3 --> C4[Scan image - Trivy]
+        C4 --> C5[Push image]
+        C5 --> C6[Deploy to Kubernetes]
         C6 --> C7[Smoke test]
     end
 
@@ -73,12 +73,12 @@ Archivo: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
 
 **Disparadores:** `push` y `pull_request` a `main`, y ejecución manual (`workflow_dispatch`). Si llegan dos pushes seguidos a la misma rama, se cancela la ejecución anterior (`concurrency`).
 
-| Job | Etapas | Qué valida |
+| Job | Steps | Qué valida |
 |---|---|---|
-| **Análisis estático** | Checkout → Python → venv + dependencias → `ruff check` → `ruff format --check` | Calidad y estilo del código. Los errores se anotan en el PR. |
-| **Pruebas y cobertura** | Checkout → Python → venv + dependencias → `pytest --cov --cov-fail-under=90` → publicar reportes | 31 pruebas automáticas; falla si la cobertura baja de 90 %. Publica `coverage.xml` y `junit.xml` como artefactos. |
-| **Seguridad** | Checkout (historial completo) → Gitleaks → `pip-audit` | Secretos filtrados y librerías vulnerables. |
-| **Build de la imagen** | `docker build` → smoke test (`/health`) → Trivy | Solo corre si los tres anteriores pasan. Verifica que la imagen arranca y no tiene CVE críticas. |
+| **Static analysis** | Checkout → Python → venv + dependencias → `ruff check` → `ruff format --check` | Calidad y estilo del código. Los errores se anotan en el PR. |
+| **Tests and coverage** | Checkout → Python → venv + dependencias → `pytest --cov --cov-fail-under=90` → upload test reports | 31 pruebas automáticas; falla si la cobertura baja de 90 %. Publica `coverage.xml` y `junit.xml` como artefactos. |
+| **Security** | Checkout (historial completo) → Gitleaks → `pip-audit` | Secretos filtrados y librerías vulnerables. |
+| **Image build** | `docker build` → smoke test (`/health`) → Trivy | Solo corre si los tres anteriores pasan. Verifica que la imagen arranca y no tiene CVE críticas. |
 
 Los tres primeros jobs corren en paralelo para dar feedback rápido; el build espera a que todos pasen (`needs`).
 
@@ -88,12 +88,12 @@ Archivo: [`Jenkinsfile`](../Jenkinsfile) (pipeline declarativo)
 
 | # | Stage | Qué hace | Justificación |
 |---|---|---|---|
-| 1 | **Clonar repositorio** | `checkout scm` y calcula la etiqueta `registro/repo:<commit>` | Garantiza que se despliega exactamente el commit validado. |
-| 2 | **Pruebas** | Crea el venv, ejecuta `ruff` y `pytest`, publica resultados JUnit en Jenkins | Red de seguridad: nada se publica sin pruebas, aunque se lance el job a mano. |
-| 3 | **Construir imagen Docker** | `docker build` con tag del commit y `latest` | Imagen inmutable y trazable (label `org.opencontainers.image.revision`). |
-| 4 | **Escanear imagen (Trivy)** | Falla si hay CVE críticas | Seguridad antes de publicar (*shift-left*). |
-| 5 | **Publicar imagen** | `docker login` con la credencial `registry-credentials` y `docker push` | Las credenciales viven en Jenkins, no en el código. |
-| 6 | **Desplegar en Kubernetes** | Crea el namespace si no existe, aplica `k8s/`, actualiza la imagen y espera el rollout | Despliegue declarativo y repetible; solo en `main`. |
+| 1 | **Checkout** | `checkout scm` y calcula la etiqueta `registro/repo:<commit>` | Garantiza que se despliega exactamente el commit validado. |
+| 2 | **Test** | Crea el venv, ejecuta `ruff` y `pytest`, publica resultados JUnit en Jenkins | Red de seguridad: nada se publica sin pruebas, aunque se lance el job a mano. |
+| 3 | **Build Docker image** | `docker build` con tag del commit y `latest` | Imagen inmutable y trazable (label `org.opencontainers.image.revision`). |
+| 4 | **Scan image (Trivy)** | Falla si hay CVE críticas | Seguridad antes de publicar (*shift-left*). |
+| 5 | **Push image** | `docker login` con la credencial `registry-credentials` y `docker push` | Las credenciales viven en Jenkins, no en el código. |
+| 6 | **Deploy to Kubernetes** | Crea el namespace si no existe, aplica `k8s/`, actualiza la imagen y espera el rollout | Despliegue declarativo y repetible; solo en `main`. |
 | 7 | **Smoke test** | Pod temporal que llama a `http://soporteia-api/health` | Confirma que la nueva versión responde dentro del clúster. |
 
 **Post-acciones:** si el pipeline falla, ejecuta `kubectl rollout undo` (rollback automático); siempre cierra sesión en el registro, borra las imágenes locales y limpia el workspace.
